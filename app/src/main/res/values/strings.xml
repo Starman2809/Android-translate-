@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Переводчик игр</string>
+    <string name="version_label">Версия %1$s</string>
     <string name="title">Перевод текста в игре</string>
     <string name="subtitle">Захват экрана, распознавание текста и перевод через Gemini. Подписи появляются поверх игры и не перехватывают нажатия.</string>
     <string name="key_label">Ключ Gemini</string>

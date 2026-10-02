@@ -64,6 +64,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.versionText.text = getString(R.string.version_label, packageVersion())
         store = SettingsStore(this)
         bindForm(store.load())
 
@@ -261,5 +262,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(text: String) {
         Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+    }
+
+    private fun packageVersion(): String {
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0)
+        }
+        return info.versionName ?: "1.1.0"
     }
 }

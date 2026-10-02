@@ -137,59 +137,64 @@ class ScreenCaptureService : Service() {
             override fun onStop() {
                 mainHandler.post { shutdown(fromCallback = true) }
             }
-        }, captureHandler)
+        }, mainHandler)
+        if (!createDisplayOnce(projection)) return
         displayManager.registerDisplayListener(displayListener, mainHandler)
         overlay.attach()
         SessionState.running.value = true
         SessionState.paused.value = false
         publish("Ищу текст")
-        rebuildDisplay()
+    }
+
+    /**
+     * Android allows one virtual display per screen-capture permission.
+     * Creating it again, even after a display change, crashes the process.
+     */
+    private fun createDisplayOnce(projection: MediaProjection): Boolean {
+        val size = screenSize()
+        val reader = openReader(size)
+        return try {
+            virtualDisplay = projection.createVirtualDisplay(
+                "GameTranslate",
+                size.width,
+                size.height,
+                size.density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                reader.surface,
+                null,
+                null,
+            )
+            imageReader = reader
+            rememberSize(size)
+            true
+        } catch (error: SecurityException) {
+            Log.e(TAG, "Virtual display rejected", error)
+            reader.setOnImageAvailableListener(null, null)
+            reader.close()
+            mediaProjection = null
+            runCatching { projection.stop() }
+            shutdown(
+                fromCallback = true,
+                status = "Система отклонила захват. Нажмите «Начать перевод» и подтвердите его ещё раз.",
+            )
+            false
+        }
     }
 
     private fun rebuildDisplay() {
-        if (!::captureHandler.isInitialized || tornDown.get()) return
+        if (!::captureHandler.isInitialized || tornDown.get() || virtualDisplay == null) return
         captureHandler.post {
-            val projection = mediaProjection ?: return@post
             if (tornDown.get()) return@post
+            val display = virtualDisplay ?: return@post
             val size = screenSize()
             synchronized(displayLock) {
-                val existing = virtualDisplay
-                if (existing != null &&
-                    size.width == captureWidth &&
+                if (size.width == captureWidth &&
                     size.height == captureHeight &&
                     size.density == captureDensity
                 ) {
                     return@post
                 }
-                if (existing != null) {
-                    swapReader(existing, size)
-                    return@post
-                }
-                val reader = openReader(size)
-                try {
-                    virtualDisplay = projection.createVirtualDisplay(
-                        "GameTranslate",
-                        size.width,
-                        size.height,
-                        size.density,
-                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                        reader.surface,
-                        null,
-                        captureHandler,
-                    )
-                    imageReader = reader
-                    rememberSize(size)
-                } catch (error: SecurityException) {
-                    Log.e(TAG, "Virtual display rejected", error)
-                    reader.setOnImageAvailableListener(null, null)
-                    reader.close()
-                    mainHandler.post {
-                        shutdown(
-                            fromCallback = false,
-                            status = "Захват уже использован. Нажмите «Начать перевод» ещё раз.",
-                        )
-                    }
-                }
+                swapReader(display, size)
             }
         }
     }
