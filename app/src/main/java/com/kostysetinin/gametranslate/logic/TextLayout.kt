@@ -97,6 +97,34 @@ object TextLayout {
     }
 }
 
+/**
+ * Dialogue can be translated immediately. Short labels and changing numbers
+ * wait until the same text is seen twice, so a moving percentage does not
+ * block the rest of the screen.
+ */
+class LineReadiness {
+    private val counts = LinkedHashMap<String, Int>()
+
+    fun ready(lines: List<TextBox>, normalize: (String) -> String): List<TextBox> {
+        val present = LinkedHashSet<String>()
+        val selected = mutableListOf<TextBox>()
+        for (line in lines) {
+            val key = normalize(line.text)
+            present += key
+            val count = (counts[key] ?: 0) + 1
+            counts[key] = count
+            if (count >= framesNeeded(line.text)) selected += line
+        }
+        counts.keys.retainAll(present)
+        return selected
+    }
+
+    private fun framesNeeded(text: String): Int {
+        val letters = text.count { it.isLetter() }
+        return if (letters >= 12) 1 else 2
+    }
+}
+
 /** Waits until OCR text stops flickering before a network translation. */
 class StabilityGate(private val framesRequired: Int = 2) {
     private var lastKey: String? = null

@@ -75,6 +75,23 @@ class TranslationLogicTest {
     }
 
     @Test
+    fun dialogueIsReadyImmediatelyWhileNumbersWait() {
+        val readiness = LineReadiness()
+        val dialogue = TextBox(
+            "We understand the unique situation you find yourself in.",
+            0f,
+            0f,
+            400f,
+            40f,
+        )
+        val percent = TextBox("71.43%", 0f, 80f, 120f, 110f)
+        val first = readiness.ready(listOf(dialogue, percent)) { it.trim() }
+        assertEquals(listOf(dialogue.text), first.map { it.text })
+        val second = readiness.ready(listOf(dialogue, percent)) { it.trim() }
+        assertEquals(listOf(dialogue.text, percent.text), second.map { it.text })
+    }
+
+    @Test
     fun stabilityRequiresTwoIdenticalFrames() {
         val gate = StabilityGate(framesRequired = 2)
         assertFalse(gate.observe("hello"))

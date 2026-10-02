@@ -271,6 +271,6 @@ class MainActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             packageManager.getPackageInfo(packageName, 0)
         }
-        return info.versionName ?: "1.2.0"
+        return info.versionName ?: "1.3.0"
     }
 }

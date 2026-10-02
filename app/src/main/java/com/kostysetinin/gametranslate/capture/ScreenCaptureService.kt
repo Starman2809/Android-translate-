@@ -23,6 +23,7 @@ import android.util.Log
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.kostysetinin.gametranslate.R
+import com.kostysetinin.gametranslate.logic.LineReadiness
 import com.kostysetinin.gametranslate.logic.StabilityGate
 import com.kostysetinin.gametranslate.logic.TranslationMemory
 import com.kostysetinin.gametranslate.ocr.OcrEngine
@@ -46,6 +47,7 @@ class ScreenCaptureService : Service() {
     private val processing = AtomicBoolean(false)
     private val tornDown = AtomicBoolean(false)
     private val stability = StabilityGate()
+    private val lineReadiness = LineReadiness()
     private val memory = TranslationMemory()
     private val ocr = OcrEngine()
     private val translator = GeminiTranslator()
@@ -240,13 +242,8 @@ class ScreenCaptureService : Service() {
             }
             return
         }
-        val signature = lines.joinToString("\n") { memory.normalize(it.text) }
-        val missing = lines.filter { memory.get(settings.target.id, it.text) == null }
-        val stable = stability.observe(signature)
-        if (missing.isNotEmpty() && !stable) {
-            publish("Жду стабильный текст")
-            return
-        }
+        val ready = lineReadiness.ready(lines) { memory.normalize(it) }
+        val missing = ready.filter { memory.get(settings.target.id, it.text) == null }
         if (missing.isNotEmpty()) {
             publish("Перевожу…")
             try {
