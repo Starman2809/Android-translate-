@@ -20,6 +20,7 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
+import android.view.Display
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.kostysetinin.gametranslate.R
@@ -63,11 +64,15 @@ class ScreenCaptureService : Service() {
     private var paused = false
     private var lastRunAt = 0L
     private var lastStatus = ""
+    private var captureWidth = 0
+    private var captureHeight = 0
+    private var captureDensity = 0
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = Unit
         override fun onDisplayRemoved(displayId: Int) = Unit
         override fun onDisplayChanged(displayId: Int) {
+            if (displayId != Display.DEFAULT_DISPLAY) return
             rebuildDisplay()
         }
     }
@@ -142,30 +147,79 @@ class ScreenCaptureService : Service() {
     }
 
     private fun rebuildDisplay() {
-        if (!::captureHandler.isInitialized) return
+        if (!::captureHandler.isInitialized || tornDown.get()) return
         captureHandler.post {
             val projection = mediaProjection ?: return@post
+            if (tornDown.get()) return@post
             val size = screenSize()
             synchronized(displayLock) {
-                virtualDisplay?.release()
-                virtualDisplay = null
-                imageReader?.setOnImageAvailableListener(null, null)
-                imageReader?.close()
-                val reader = ImageReader.newInstance(size.width, size.height, android.graphics.PixelFormat.RGBA_8888, 2)
-                reader.setOnImageAvailableListener({ onImage(it) }, captureHandler)
-                imageReader = reader
-                virtualDisplay = projection.createVirtualDisplay(
-                    "GameTranslate",
-                    size.width,
-                    size.height,
-                    size.density,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                    reader.surface,
-                    null,
-                    captureHandler,
-                )
+                val existing = virtualDisplay
+                if (existing != null &&
+                    size.width == captureWidth &&
+                    size.height == captureHeight &&
+                    size.density == captureDensity
+                ) {
+                    return@post
+                }
+                if (existing != null) {
+                    swapReader(existing, size)
+                    return@post
+                }
+                val reader = openReader(size)
+                try {
+                    virtualDisplay = projection.createVirtualDisplay(
+                        "GameTranslate",
+                        size.width,
+                        size.height,
+                        size.density,
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                        reader.surface,
+                        null,
+                        captureHandler,
+                    )
+                    imageReader = reader
+                    rememberSize(size)
+                } catch (error: SecurityException) {
+                    Log.e(TAG, "Virtual display rejected", error)
+                    reader.setOnImageAvailableListener(null, null)
+                    reader.close()
+                    mainHandler.post {
+                        shutdown(
+                            fromCallback = false,
+                            status = "Захват уже использован. Нажмите «Начать перевод» ещё раз.",
+                        )
+                    }
+                }
             }
         }
+    }
+
+    private fun swapReader(display: VirtualDisplay, size: ScreenSize) {
+        val reader = openReader(size)
+        val previous = imageReader
+        imageReader = reader
+        display.setSurface(reader.surface)
+        display.resize(size.width, size.height, size.density)
+        rememberSize(size)
+        previous?.setOnImageAvailableListener(null, null)
+        previous?.close()
+    }
+
+    private fun openReader(size: ScreenSize): ImageReader {
+        return ImageReader.newInstance(
+            size.width,
+            size.height,
+            android.graphics.PixelFormat.RGBA_8888,
+            2,
+        ).also { reader ->
+            reader.setOnImageAvailableListener({ onImage(it) }, captureHandler)
+        }
+    }
+
+    private fun rememberSize(size: ScreenSize) {
+        captureWidth = size.width
+        captureHeight = size.height
+        captureDensity = size.density
     }
 
     private fun onImage(reader: ImageReader) {
@@ -286,7 +340,7 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun shutdown(fromCallback: Boolean) {
+    private fun shutdown(fromCallback: Boolean, status: String = "Остановлено") {
         if (!tornDown.compareAndSet(false, true)) return
         scope.cancel()
         runCatching { displayManager.unregisterDisplayListener(displayListener) }
@@ -308,7 +362,7 @@ class ScreenCaptureService : Service() {
             if (::overlay.isInitialized) overlay.detach()
             SessionState.running.value = false
             SessionState.paused.value = false
-            SessionState.status.value = "Остановлено"
+            SessionState.status.value = status
         }
         captureThread.quitSafely()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
